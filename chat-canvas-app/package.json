@@ -16,6 +16,8 @@
     "express": "^4.19.2",
     "openai": "^4.70.2",
     "postcss-import": "^16.1.1",
+    "@supabase/supabase-js": "^2.45.5",
+    "react-router-dom": "^6.27.0",
     "react": "^19.1.1",
     "react-dom": "^19.1.1",
     "react-markdown": "^9.0.1",

@@ -15,10 +15,12 @@ import { resolveOverlaps as resolveOverlapsFn } from "./layout/resolveOverlaps";
 import Bubble from "./components/Bubble";
 import LinesSVG from "./components/LinesSVG";
 
-import { loadState, saveState, clearState as clearSavedState } from "./utils/persistence";
+import { loadState, saveState, clearState as clearSavedState, buildExportJSON, triggerDownload, pushHistory, takePendingLoad } from "./utils/persistence";
 import { generateLLMReplyStream } from "./utils/llm";
+import { useAuth } from "../auth/AuthContext.jsx";
 
 export default function ChatCanvas() {
+  const { user } = useAuth?.() || {};
   const [viewport, setViewport] = useState({ w: window.innerWidth, h: window.innerHeight });
   const [stageSize, setStageSize] = useState({ width: window.innerWidth, height: window.innerHeight });
   const stageSizeRef = useRef(stageSize);
@@ -58,14 +60,41 @@ export default function ChatCanvas() {
   useEffect(() => { messagesRef.current = messages; }, [messages]);
   useEffect(() => { stageSizeRef.current = stageSize; }, [stageSize]);
 
+  // Listen for external clear command (from CanvasPage top-right menu)
+  useEffect(() => {
+    const onClear = () => clearCanvas();
+    window.addEventListener('chatcanvas:clear', onClear);
+    return () => window.removeEventListener('chatcanvas:clear', onClear);
+  }, []);
+
+  // Listen for export command -> download threads JSON
+  useEffect(() => {
+    const onExport = () => {
+      try {
+        const json = buildExportJSON(messagesRef.current);
+        triggerDownload('chatcanvas-threads.json', json);
+      } catch (e) {
+        console.warn('[ChatCanvas] export failed:', e);
+      }
+    };
+    window.addEventListener('chatcanvas:export', onExport);
+    return () => window.removeEventListener('chatcanvas:export', onExport);
+  }, []);
+
   useEffect(() => {
     const onResize = () => setViewport({ w: window.innerWidth, h: window.innerHeight });
     window.addEventListener("resize", onResize);
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
-  // Load persisted state on mount
+  // Load persisted state or a pending memory session on mount
   useEffect(() => {
+    const pending = takePendingLoad?.();
+    if (pending && pending.messages?.length) {
+      setMessages(pending.messages);
+      if (pending.stageSize) setStageSize(pending.stageSize);
+      return;
+    }
     const loaded = loadState?.();
     if (loaded?.messages) setMessages(loaded.messages);
     if (loaded?.stageSize) setStageSize(loaded.stageSize);
@@ -504,11 +533,19 @@ export default function ChatCanvas() {
   const handleNewChatSubmit = async (e) => {
     e.preventDefault();
     if (!newChatInput.trim()) return;
+    const totalNow = messagesRef.current.length;
+    if (isAnonymous && totalNow >= ANON_PROMPT_LIMIT) return; // hard stop
     const userText = newChatInput;
     const parentId = addMessage({ text: userText, senderId: "local-user", parentId: null, isThread: false });
     setNewChatInput("");
     setActiveThreadId(null);
     setReplyAnchor(null);
+
+    // If anonymous and only one slot remains, add only the user's message (no assistant)
+    if (isAnonymous && (ANON_PROMPT_LIMIT - totalNow) <= 1) {
+      lastAddedIdRef.current = parentId;
+      return;
+    }
 
     // Create a placeholder assistant message and stream tokens into it
     const assistantId = addMessage({
@@ -542,6 +579,8 @@ export default function ChatCanvas() {
   const handleReplyInThread = async (e) => {
     e.preventDefault();
     if (!threadInputText.trim() || !activeThreadId) return;
+    const totalNow = messagesRef.current.length;
+    if (isAnonymous && totalNow >= ANON_PROMPT_LIMIT) return; // hard stop
     // Decide whether this reply continues the main chain or starts a branch
     const rootId = getRootIdOf(messagesRef, activeThreadId);
     // Use computed tail based on timestamps to avoid race with layout updates
@@ -558,6 +597,12 @@ export default function ChatCanvas() {
     setThreadInputText("");
     setActiveThreadId(null);
     setReplyAnchor(null);
+
+    // If anonymous and only one slot remains, add only the user's message (no assistant)
+    if (isAnonymous && (ANON_PROMPT_LIMIT - totalNow) <= 1) {
+      lastAddedIdRef.current = userMsgId;
+      return;
+    }
 
     // LLM continues in the same chain (main or thread) with streaming
     const assistantId = addMessage({
@@ -665,6 +710,27 @@ export default function ChatCanvas() {
 
   // actions
   const clearCanvas = () => {
+    // Archive current session into Memories before clearing
+    try {
+      const current = messagesRef.current || [];
+      if (current.length) {
+        const byTime = [...current].sort((a,b) => new Date(a.timestamp) - new Date(b.timestamp));
+        const first = byTime[0];
+        const title = (first?.text || "Untitled").slice(0, 80);
+        const session = {
+          id: `mem-${Date.now()}-${Math.random().toString(36).slice(2,7)}`,
+          title,
+          createdAt: first?.timestamp || new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          messages: current,
+          stageSize: stageSizeRef.current,
+          export: buildExportJSON(current),
+        };
+        pushHistory?.(session);
+      }
+    } catch (e) {
+      console.warn('[ChatCanvas] failed to archive session:', e);
+    }
     cleanupObservers();
     clearSavedState();
     setMessages([]);
@@ -678,7 +744,12 @@ export default function ChatCanvas() {
     rootCentersRef.current.clear();
     mainTailByRootRef.current.clear();
   };
-  
+
+  // Anonymous usage limit: allow up to 5 user prompts when not signed in
+  const isAnonymous = !user;
+  const totalMessageCount = messages.length; // count user + AI messages
+  const ANON_PROMPT_LIMIT = 5;
+  const anonLimitReached = isAnonymous && totalMessageCount >= ANON_PROMPT_LIMIT;
 
   const getBubbleColor = (sid) => {
     // Pastel, semi-transparent backgrounds for glass effect
@@ -713,14 +784,10 @@ export default function ChatCanvas() {
           setHoverReplyAnchor(null);
         }}
       >
-        {hasStarted && (
-          <div className="fixed top-4 right-4 z-40 flex gap-2">
-            <button
-              onClick={clearCanvas}
-              className="px-4 py-2 bg-gray-800 text-white rounded-full shadow-md hover:bg-gray-700 transition-colors"
-            >
-              Clear
-            </button>
+        {/* Anonymous limit notice */}
+        {anonLimitReached && (
+          <div className="fixed top-4 left-1/2 -translate-x-1/2 z-40 px-4 py-2 rounded-full bg-yellow-100 text-yellow-800 border border-yellow-200 shadow">
+            You have reached the limit of 5 messages, please configure your account from top-right circle
           </div>
         )}
 
@@ -765,7 +832,7 @@ export default function ChatCanvas() {
           const x = clampX(centerX);
           const y = clampYNoBottom(snap((parentRect.y ?? 0) + (parentRect.h ?? 0) + GAP));
           const placedRect = { x, y, w: INPUT_W, h: INPUT_H };
-          const interactive = !!activeThreadId && threadId === activeThreadId;
+          const interactive = !!activeThreadId && threadId === activeThreadId && !anonLimitReached;
 
           return (
             <form
@@ -816,7 +883,7 @@ export default function ChatCanvas() {
                 type="text"
                 value={threadInputText}
                 onChange={(e) => setThreadInputText(e.target.value)}
-                placeholder={interactive ? "Reply here..." : "Click bubble to reply"}
+                placeholder={anonLimitReached ? "Limit reached — configure from the top-right circle" : (interactive ? "Reply here..." : "Click bubble to reply")}
                 className="w-full h-full px-4 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 style={{
                   // Glass input styling to match bubble aesthetic
@@ -857,12 +924,14 @@ export default function ChatCanvas() {
               onChange={(e) => setNewChatInput(e.target.value)}
               placeholder="Start a new chat..."
               className="p-3 w-80 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 text-black border border-gray-300"
+              disabled={anonLimitReached}
             />
             <button
               type="submit"
-              className="px-6 py-2 bg-blue-500 text-white rounded-full shadow-md hover:bg-blue-600 transition-colors"
+              disabled={anonLimitReached}
+              className="px-6 py-2 bg-blue-500 text-white rounded-full shadow-md hover:bg-blue-600 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
             >
-              Start
+              {anonLimitReached ? "Limit reached" : "Start"}
             </button>
           </form>
         )}

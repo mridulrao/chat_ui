@@ -12,4 +12,11 @@ export default defineConfig({
       },
     },
   },
+  resolve: {
+    // Ensure only one copy of React is bundled (prevents invalid hook call)
+    dedupe: ['react', 'react-dom'],
+  },
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react-router-dom'],
+  },
 })

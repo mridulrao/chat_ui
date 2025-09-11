@@ -2,6 +2,8 @@
 // Lightweight persistence and export helpers for ChatCanvas
 
 const STORAGE_KEY = "chatcanvas.state.v1";
+const HISTORY_KEY = "chatcanvas.history.v1";
+const PENDING_LOAD_KEY = "chatcanvas.pendingLoad.v1";
 
 // Map ChatCanvas senderId -> conventional chat role
 const roleFromSender = (senderId) => {
@@ -151,5 +153,60 @@ export const triggerDownload = (filename, jsonObj) => {
     setTimeout(() => URL.revokeObjectURL(url), 0);
   } catch (e) {
     console.warn("[persistence] Failed to trigger download:", e);
+  }
+};
+
+// --- Multi-conversation history helpers ---
+const safeParse = (raw, fallback) => {
+  try { return JSON.parse(raw); } catch { return fallback; }
+};
+
+export const loadHistory = () => {
+  try {
+    const raw = localStorage.getItem(HISTORY_KEY);
+    const arr = safeParse(raw, []);
+    return Array.isArray(arr) ? arr : [];
+  } catch (e) {
+    console.warn('[persistence] Failed to load history:', e);
+    return [];
+  }
+};
+
+export const saveHistory = (items) => {
+  try {
+    const arr = Array.isArray(items) ? items : [];
+    localStorage.setItem(HISTORY_KEY, JSON.stringify(arr));
+  } catch (e) {
+    console.warn('[persistence] Failed to save history:', e);
+  }
+};
+
+export const pushHistory = (item) => {
+  try {
+    const arr = loadHistory();
+    arr.unshift(item);
+    saveHistory(arr);
+  } catch (e) {
+    console.warn('[persistence] Failed to push history:', e);
+  }
+};
+
+export const setPendingLoad = (session) => {
+  try {
+    localStorage.setItem(PENDING_LOAD_KEY, JSON.stringify(session || null));
+  } catch (e) {
+    console.warn('[persistence] Failed to set pending load:', e);
+  }
+};
+
+export const takePendingLoad = () => {
+  try {
+    const raw = localStorage.getItem(PENDING_LOAD_KEY);
+    if (raw == null) return null;
+    localStorage.removeItem(PENDING_LOAD_KEY);
+    return safeParse(raw, null);
+  } catch (e) {
+    console.warn('[persistence] Failed to take pending load:', e);
+    return null;
   }
 };
