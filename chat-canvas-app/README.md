@@ -110,13 +110,3 @@ src/
 ## Usage
 
 The main `ChatCanvas.jsx` component remains the entry point and can be imported exactly as before:
-
-```jsx
-import ChatCanvas from './ChatCanvas.jsx';
-
-function App() {
-  return <ChatCanvas />;
-}
-```
-
-All the internal complexity is now hidden behind clean module boundaries, making the codebase much more maintainable and extensible.

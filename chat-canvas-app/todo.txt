@@ -1,0 +1,2 @@
+User text box should be a textarea, it should grow as the user types. 
+Add a copy button for the LLM responce 

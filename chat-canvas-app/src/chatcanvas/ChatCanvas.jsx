@@ -39,6 +39,7 @@ export default function ChatCanvas() {
   const [threadInputText, setThreadInputText] = useState("");
   const [newChatInput, setNewChatInput] = useState("");
   const replyInputRef = useRef(null);
+  const newChatInputRef = useRef(null);
 
   // Hover-only preview of the reply box (non-focused)
   const [hoverThreadId, setHoverThreadId] = useState(null);
@@ -112,6 +113,18 @@ export default function ChatCanvas() {
     setStageSize((prev) =>
       needed > prev.width ? { ...prev, width: Math.max(needed, viewport.w) } : prev
     );
+  };
+
+  // Auto-resize helpers for textareas
+  const BASE_INPUT_H = 44;
+  const MAX_TA_H = 160;
+  const autoResize = (el) => {
+    if (!el) return;
+    try {
+      el.style.height = "auto";
+      const nh = Math.min(MAX_TA_H, Math.max(BASE_INPUT_H, el.scrollHeight || 0));
+      el.style.height = nh + "px";
+    } catch {}
   };
 
   const getRectFor = (m) => {
@@ -477,13 +490,23 @@ export default function ChatCanvas() {
         replyInputRef.current?.focus();
         // Place caret at end if text exists
         try {
-          const len = replyInputText?.length ?? 0;
+          const len = threadInputText?.length ?? 0;
           replyInputRef.current?.setSelectionRange?.(len, len);
         } catch {}
       }, 0);
       return () => clearTimeout(t);
     }
   }, [activeThreadId, replyAnchor]);
+
+  // Keep reply textarea sized to content
+  useEffect(() => {
+    if (replyInputRef.current) autoResize(replyInputRef.current);
+  }, [threadInputText, activeThreadId, replyAnchor]);
+
+  // Keep new chat textarea sized to content
+  useEffect(() => {
+    if (newChatInputRef.current) autoResize(newChatInputRef.current);
+  }, [newChatInput]);
 
   const addMessage = (data) => {
     const userId = "local-user";
@@ -634,7 +657,8 @@ export default function ChatCanvas() {
 
   // dragging
   const handleMouseDown = (e, id) => {
-    if (e.target.tagName === "INPUT" || e.target.tagName === "BUTTON") return;
+    const tag = e.target.tagName;
+    if (tag === "INPUT" || tag === "TEXTAREA" || tag === "BUTTON") return;
     const msg = messagesRef.current.find((m) => m.id === id);
     if (!msg) return;
     const rect = getRectFor(msg);
@@ -801,6 +825,8 @@ export default function ChatCanvas() {
             x={m.x}
             y={m.y}
             color={getBubbleColor(m.senderId)}
+            showCopy={m.senderId === "llm-assistant"}
+            text={m.text}
             registerRef={registerBubbleRef}
             onMouseDown={handleMouseDown}
             onMouseEnter={handleBubbleMouseEnter}
@@ -822,7 +848,7 @@ export default function ChatCanvas() {
           const anchor = activeThreadId ? replyAnchor : hoverReplyAnchor;
           if (!threadId || !anchor) return null;
 
-          const INPUT_W = 360, INPUT_H = 44;
+          const INPUT_W = 360;
           const parentRect = getRectById(threadId) || {
             x: anchor.x, y: anchor.y, w: anchor.w, h: anchor.h
           };
@@ -831,8 +857,12 @@ export default function ChatCanvas() {
           const centerX = (parentRect.x ?? 0) + (parentRect.w ?? 0) / 2 - INPUT_W / 2;
           const x = clampX(centerX);
           const y = clampYNoBottom(snap((parentRect.y ?? 0) + (parentRect.h ?? 0) + GAP));
-          const placedRect = { x, y, w: INPUT_W, h: INPUT_H };
           const interactive = !!activeThreadId && threadId === activeThreadId && !anonLimitReached;
+          const baseH = BASE_INPUT_H;
+          const maxH = MAX_TA_H;
+          const currentH = Math.min(maxH, Math.max(baseH, replyInputRef.current?.scrollHeight || baseH));
+          const replyH = interactive ? currentH : baseH;
+          const placedRect = { x, y, w: INPUT_W, h: replyH };
 
           return (
             <form
@@ -842,7 +872,7 @@ export default function ChatCanvas() {
                 left: placedRect.x,
                 top: placedRect.y,
                 width: INPUT_W,
-                height: INPUT_H,
+                height: replyH,
               }}
               onClick={(e) => e.stopPropagation()}
               onMouseEnter={() => {
@@ -878,13 +908,22 @@ export default function ChatCanvas() {
                 }
               }}
             >
-              <input
+              <textarea
                 ref={replyInputRef}
-                type="text"
+                rows={1}
                 value={threadInputText}
-                onChange={(e) => setThreadInputText(e.target.value)}
+                onChange={(e) => {
+                  setThreadInputText(e.target.value);
+                  autoResize(e.target);
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    e.currentTarget.form?.requestSubmit?.();
+                  }
+                }}
                 placeholder={anonLimitReached ? "Limit reached — configure from the top-right circle" : (interactive ? "Reply here..." : "Click bubble to reply")}
-                className="w-full h-full px-4 rounded-full text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="w-full px-4 py-2 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
                 style={{
                   // Glass input styling to match bubble aesthetic
                   background: "linear-gradient(135deg, rgba(255,255,255,0.45), rgba(255,255,255,0.15))",
@@ -894,6 +933,11 @@ export default function ChatCanvas() {
                   border: "1px solid rgba(255,255,255,0.5)",
                   boxShadow: "0 6px 18px rgba(2,6,23,0.12), inset 0 1px 0 rgba(255,255,255,0.2)",
                   opacity: interactive ? 1 : 0.9,
+                  height: replyH,
+                  maxHeight: MAX_TA_H,
+                  minHeight: BASE_INPUT_H,
+                  resize: "none",
+                  overflowY: "auto",
                 }}
                 onMouseDown={(e) => e.stopPropagation()}
                 readOnly={!interactive}
@@ -918,12 +962,23 @@ export default function ChatCanvas() {
 
         {!hasStarted && (
           <form onSubmit={handleNewChatSubmit} className="fixed left-1/2 -translate-x-1/2 bottom-4 z-30 flex gap-2">
-            <input
-              type="text"
+            <textarea
+              ref={newChatInputRef}
+              rows={1}
               value={newChatInput}
-              onChange={(e) => setNewChatInput(e.target.value)}
+              onChange={(e) => {
+                setNewChatInput(e.target.value);
+                autoResize(e.target);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !e.shiftKey) {
+                  e.preventDefault();
+                  e.currentTarget.form?.requestSubmit?.();
+                }
+              }}
               placeholder="Start a new chat..."
-              className="p-3 w-80 rounded-full focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 text-black border border-gray-300"
+              className="p-3 w-80 rounded-xl focus:outline-none focus:ring-2 focus:ring-blue-500 bg-gray-100 text-black border border-gray-300"
+              style={{ minHeight: BASE_INPUT_H, maxHeight: MAX_TA_H, resize: 'none', overflowY: 'auto' }}
               disabled={anonLimitReached}
             />
             <button
