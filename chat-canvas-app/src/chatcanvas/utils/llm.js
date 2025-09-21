@@ -108,11 +108,12 @@ export async function generateLLMReply({ allMessages, parentId, replyToId, userT
     const threadId = reqThreadId;
 
     const proxyUrl = import.meta.env.VITE_LLM_PROXY_URL;
-    const chosenModel = model || import.meta.env.VITE_LLM_MODEL || "gpt40"; // server maps to gpt-4o-mini
+    const chosenModel = model || import.meta.env.VITE_LLM_MODEL || "gpt-5"; // server maps to gpt-4o-mini
 
     if (proxyUrl) {
       const res = await fetch(proxyUrl, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           threadId,
@@ -180,6 +181,7 @@ export async function generateLLMReplyStream({
 
     const res = await fetch(url, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ threadId, model: chosenModel, messages: chat }),
     });

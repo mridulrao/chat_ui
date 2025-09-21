@@ -1,9 +1,34 @@
 // components/Bubble.jsx
-import React from "react";
+import React, { useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 
-export default function Bubble({ id, placed, x, y, color, children, registerRef, onMouseDown, onClick, onMouseEnter, onMouseLeave }) {
+export default function Bubble({ id, placed, x, y, color, children, registerRef, onMouseDown, onClick, onMouseEnter, onMouseLeave, showCopy = false, text }) {
+  const [copied, setCopied] = useState(false);
+
+  const rawText = typeof children === "string" ? children : (typeof text === "string" ? text : "");
+
+  const handleCopy = async (e) => {
+    e?.stopPropagation?.();
+    try {
+      if (navigator?.clipboard?.writeText) {
+        await navigator.clipboard.writeText(rawText || "");
+      } else {
+        const ta = document.createElement('textarea');
+        ta.value = rawText || "";
+        ta.style.position = 'fixed';
+        ta.style.left = '-1000px';
+        document.body.appendChild(ta);
+        ta.focus();
+        ta.select();
+        document.execCommand('copy');
+        document.body.removeChild(ta);
+      }
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1200);
+    } catch {}
+  };
+
   return (
     <div
       key={id}
@@ -30,6 +55,20 @@ export default function Bubble({ id, placed, x, y, color, children, registerRef,
       onMouseEnter={(e) => onMouseEnter?.(e, id, placed)}
       onMouseLeave={(e) => onMouseLeave?.(e, id, placed)}
     >
+      {showCopy && rawText ? (
+        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+          <button
+            type="button"
+            aria-label="Copy response"
+            title={copied ? "Copied" : "Copy"}
+            className={`px-2 py-1 text-xs rounded border shadow-sm ${copied ? 'bg-green-100 border-green-300 text-green-800' : 'bg-white/80 hover:bg-white border-gray-300 text-gray-700'}`}
+            onClick={handleCopy}
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+        </div>
+      ) : null}
       <div className="text-sm leading-6 break-words space-y-2">
         <ReactMarkdown
           remarkPlugins={[remarkGfm]}
@@ -82,7 +121,7 @@ export default function Bubble({ id, placed, x, y, color, children, registerRef,
             p({ children: pChildren }) { return <p className="">{pChildren}</p>; },
           }}
         >
-          {typeof children === "string" ? children : ""}
+          {rawText}
         </ReactMarkdown>
       </div>
     </div>
