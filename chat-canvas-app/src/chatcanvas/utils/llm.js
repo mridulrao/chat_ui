@@ -113,6 +113,7 @@ export async function generateLLMReply({ allMessages, parentId, replyToId, userT
     if (proxyUrl) {
       const res = await fetch(proxyUrl, {
         method: "POST",
+        credentials: "include",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           threadId,
@@ -180,6 +181,7 @@ export async function generateLLMReplyStream({
 
     const res = await fetch(url, {
       method: "POST",
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ threadId, model: chosenModel, messages: chat }),
     });
