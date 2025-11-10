@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LiveKit Text Sender</title>
+  <script src="https://cdn.jsdelivr.net/npm/livekit-client/dist/livekit-client.umd.min.js"></script>
+</head>
+<body>
+  <h1>LiveKit Text</h1>
+
+  <fieldset>
+    <legend>Connection</legend>
+    <button id="connectBtn">Connect</button>
+    <span id="status">Disconnected</span>
+  </fieldset>
+
+  <fieldset>
+    <legend>Send Text</legend>
+    <br/>
+    <textarea id="text" rows="6" cols="80" placeholder="Type your message here..."></textarea>
+    <br/>
+    <button id="sendOnceBtn" disabled>Send Once</button>
+    <button id="streamBtn" disabled>Stream (word-by-word)</button>
+  </fieldset>
+
+  <fieldset>
+    <legend>Logs</legend>
+    <pre id="log" style="white-space: pre-wrap; border: 1px solid #ccc; padding: 8px; max-height: 300px; overflow: auto;"></pre>
+  </fieldset>
+
+  <script>
+    const logEl = document.getElementById('log');
+    function log(msg) {
+      const ts = new Date().toISOString();
+      logEl.textContent += `[${ts}] ${msg}\n`;
+      logEl.scrollTop = logEl.scrollHeight;
+    }
+
+    const statusEl = document.getElementById('status');
+    const connectBtn = document.getElementById('connectBtn');
+    const sendOnceBtn = document.getElementById('sendOnceBtn');
+    const streamBtn = document.getElementById('streamBtn');
+
+    const textEl = document.getElementById('text');
+
+    let room = null;
+
+    function setConnectedUI(connected) {
+      sendOnceBtn.disabled = !connected;
+      streamBtn.disabled = !connected;
+      statusEl.textContent = connected ? 'Connected' : 'Disconnected';
+    }
+
+    async function createParticipantToken() {
+      // Your FastAPI /token returns: { token, url }
+      const res = await fetch('http://127.0.0.1:8000/token', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({})
+      });
+      if (!res.ok) {
+        const txt = await res.text();
+        throw new Error(`Token fetch failed: ${res.status} ${txt}`);
+      }
+      return await res.json();
+    }
+
+    connectBtn.addEventListener('click', async () => {    
+      try {    
+          log('Requesting token...');    
+          const data = await createParticipantToken();    
+          const { token, url } = data;    
+            
+          room = new LivekitClient.Room();    
+            
+          room.registerTextStreamHandler('lk.chat', async (reader, participantIdentity) => {    
+              let fullText = '';    
+              for await (const chunk of reader) {    
+                  fullText += chunk;    
+                  log(`Received from agent: ${chunk}`);    
+              }    
+              log(`Complete message from agent: ${fullText}`);    
+          });    
+            
+          room.on(LivekitClient.RoomEvent.Connected, () => log('Room connected.'));    
+          room.on(LivekitClient.RoomEvent.Disconnected, () => {     
+              log('Room disconnected.');     
+              setConnectedUI(false);     
+          });    
+            
+          // Connect immediately - don't wait  
+          log('Connecting to room...');  
+          await room.connect(url, token);    
+          setConnectedUI(true);    
+          log('Joined room as ' + room.localParticipant.identity);    
+      } catch (err) {    
+          console.error(err);    
+          log('Connect error: ' + (err?.message || err));    
+          setConnectedUI(false);    
+      }    
+  });
+
+    // Need to pass the topic as well
+    sendOnceBtn.addEventListener('click', async () => {  
+    if (!room) return alert('Not connected');  
+    try {  
+        const text = textEl.value;  
+        const info = await room.localParticipant.sendText(text, {  
+        topic: 'lk.chat',  // Add this required parameter  
+        });  
+        log(`sendText ok (id=${info?.id || 'n/a'})`);  
+    } catch (err) {  
+        console.error(err);  
+        log('sendText error: ' + (err?.message || err));  
+    }  
+    });
+
+    // Need to pass the topic as well
+    streamBtn.addEventListener('click', async () => {  
+    if (!room) return alert('Not connected');  
+    const text = textEl.value.trim();  
+    if (!text) return alert('Enter some text to stream.');  
+    try {  
+        const writer = await room.localParticipant.streamText({  
+        topic: 'lk.chat',  // Add this required parameter  
+        });  
+        log('streamText opened');  
+        const words = text.split(/\s+/);  
+        for (const w of words) {  
+        await writer.write(w + ' ');  
+        log(`stream write: ${w}`);  
+        await new Promise(r => setTimeout(r, 60));  
+        }  
+        await writer.close();  
+        log('streamText closed');  
+    } catch (err) {  
+        console.error(err);  
+        log('streamText error: ' + (err?.message || err));  
+    }  
+    });
+
+  </script>
+</body>
+</html>
