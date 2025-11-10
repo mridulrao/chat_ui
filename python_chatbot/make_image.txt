@@ -1,0 +1,20 @@
+# build the image, push to registry
+docker login
+
+docker buildx build \
+  -f Dockerfile.<version> \
+  --platform linux/amd64 \
+  -t mridulrao/vllm-gateway:<version> \
+  --push .
+
+
+#### ONE STEP AT A TIME
+# build the image 
+docker build -f Dockerfile.<version> -t mridulrao/vllm-gateway:<version> .
+
+#retag local image (if needed)
+docker tag vllm-gateway:<version> mridulrao/vllm-gateway:<version>
+
+# push the image 
+docker login
+docker push mridulrao/vllm-gateway:<version>
