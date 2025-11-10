@@ -1,7 +1,0 @@
-In any transformer-based autoregressive model, each new token’s self-attention computes queries (Q) against the keys (K) and 
-values (V) of all previous tokens. If you recompute K/V for all previous tokens at every generation step, 
-you get quadratic cost in sequence length, which is very inefficient for long contexts.
-
-
-However: the KV cache itself grows roughly linearly with sequence length × batch size × number of layers × number of heads. 
-So memory and allocation management become critical
