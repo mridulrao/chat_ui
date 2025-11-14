@@ -1,9 +1,0 @@
-Done -- User text box should be a textarea, it should grow as the user types. 
-Done -- Add a copy button for the LLM responce 
-
-Done -- Add section to add api keys in the config page 
-Add multiple LLM providers (OpenAI, Anthropic, Cohere) 
-
-npm run server
-npm run dev
-

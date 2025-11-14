@@ -200,6 +200,14 @@ async def _call_vllm_chat(payload: Dict[str, Any], stream: bool):
 # -----------------------------
 app = FastAPI(title="Qwen Gateway", version="0.2.0")
 
+@app.exception_handler(Exception)
+async def unhandled_exc(_req: Request, exc: Exception):
+    return JSONResponse(
+        status_code=500,
+        content={"error": {"message": f"{type(exc).__name__}: {str(exc)}",
+                           "trace": traceback.format_exc()[:4000]}},
+    )
+
 @app.get("/v1/health")
 async def health():
     return {
