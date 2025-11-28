@@ -1,0 +1,92 @@
+# ============================
+# Dockerfile for vLLM + Gateway
+# with speculative decoding (ngram method)
+# ============================
+
+ARG TARGETPLATFORM=linux/amd64
+FROM --platform=$TARGETPLATFORM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_NO_CACHE_DIR=1
+
+# -----------------------------------------
+# System dependencies
+# -----------------------------------------
+# - build-essential: needed for Triton & C/C++ builds
+# - python3-dev: provides Python.h and dev headers
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3 python3-pip python3-venv python3-dev \
+    ca-certificates curl git \
+    build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# Set GCC explicitly
+ENV CC=/usr/bin/gcc
+ENV CXX=/usr/bin/g++
+
+# -----------------------------------------
+# Python dependencies
+# -----------------------------------------
+RUN pip3 install --upgrade pip && \
+    # PyTorch with CUDA 12.1
+    pip3 install --extra-index-url https://download.pytorch.org/whl/cu121 \
+        "torch==2.5.1+cu121" && \
+    # vLLM + typical server deps
+    pip3 install \
+        vllm \
+        fastapi uvicorn uvloop httpx orjson pydantic-settings \
+        redis \
+        torch-c-dlpack-ext
+
+# -----------------------------------------
+# App layout
+# -----------------------------------------
+WORKDIR /app
+
+# Copy your gateway code
+COPY gateway_v3.py /app/gateway.py
+
+# -----------------------------------------
+# Models cache (persist if using a volume)
+# -----------------------------------------
+ENV VLLM_DOWNLOAD_DIR=/models
+RUN mkdir -p /models
+
+# -----------------------------------------
+# Default environment variables
+# -----------------------------------------
+ENV MODEL_NAME="Qwen/Qwen3-4B-Instruct-2507" \
+    OPENAI_HOST=0.0.0.0 \
+    OPENAI_PORT=8000 \
+    GATEWAY_HOST=0.0.0.0 \
+    GATEWAY_PORT=3000 \
+    API_KEYS="devkey" \
+    MAX_TURNS=24 \
+    SESSION_TTL_SECONDS=3600 \
+    UPSTREAM_OPENAI="http://127.0.0.1:8000/v1" \
+    REDIS_URL=""
+
+# -----------------------------------------
+# Expose ports
+# -----------------------------------------
+EXPOSE 8000 3000
+
+# -----------------------------------------
+# Startup command
+# Using ngram speculative decoding (draft model not supported in V1)
+# -----------------------------------------
+CMD ["/bin/bash", "-lc", "\
+  python3 -m vllm.entrypoints.openai.api_server \
+    --model ${MODEL_NAME} \
+    --host ${OPENAI_HOST} --port ${OPENAI_PORT} \
+    --download-dir ${VLLM_DOWNLOAD_DIR} \
+    --max-model-len 16384 \
+    --gpu-memory-utilization 0.90 \
+    --tensor-parallel-size 1 \
+    --enforce-eager \
+    --speculative-config '{\"method\": \"ngram\", \"num_speculative_tokens\": 5, \"prompt_lookup_max\": 5}' \
+  & \
+  uvicorn gateway:app --host ${GATEWAY_HOST} --port ${GATEWAY_PORT} \
+"]

@@ -5,6 +5,7 @@ from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.responses import StreamingResponse, JSONResponse
 import httpx
 import orjson
+import traceback
 
 try:
     import redis  # optional
