@@ -7,13 +7,12 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-# System deps
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     python3 python3-pip python3-venv ca-certificates curl git \
  && rm -rf /var/lib/apt/lists/*
 
-# Python deps (vLLM + gateway)
-# vLLM gives OpenAI-compatible /v1 endpoints; FlashAttn improves perf on L4
+
 RUN pip3 install --upgrade pip && \
     pip3 install --index-url https://download.pytorch.org/whl/cu121 torch && \
     pip3 install \
@@ -44,11 +43,7 @@ ENV MODEL_NAME="Qwen/Qwen3-4B-Instruct-2507" \
 # Expose ports
 EXPOSE 8000 3000
 
-# Start vLLM and the gateway
-# Notes:
-#  - --gpu-memory-utilization ~0.90 on L4 24GB is a solid default
-#  - --max-model-len=16384 keeps KV under control on 24GB (tweak as needed)
-#  - --download-dir to reuse weights across restarts
+
 CMD ["/bin/bash", "-lc", "\
   python3 -m vllm.entrypoints.openai.api_server \
     --model ${MODEL_NAME} \
