@@ -9,13 +9,11 @@ from openai import AsyncOpenAI
 # Config
 # ------------------------------
 API_KEY = os.getenv("OPENAI_API_KEY", "devkey")
-BASE_URL = os.getenv("OPENAI_BASE", "http://localhost:3000/v1")
+BASE_URL = os.getenv("OPENAI_BASE", "https://8m6w52rqlqso7s-3000.proxy.runpod.net/v1")
 MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 
-# number of concurrent requests
-NUM_REQUESTS = int(os.getenv("BENCH_N", "20"))   # e.g., 20 parallel
-MAX_TOKENS = 256
-
+NUM_REQUESTS = int(os.getenv("BENCH_N", "20"))   # concurrent requests
+MAX_TOKENS = int(os.getenv("BENCH_MAX_TOKENS", "256"))
 
 client = AsyncOpenAI(
     api_key=API_KEY,
@@ -23,11 +21,8 @@ client = AsyncOpenAI(
 )
 
 
-# ------------------------------
-# Single request wrapper
-# ------------------------------
 async def run_one(i: int):
-    """Run one chat completion and return (latency, usage_stats)"""
+    """Run one chat completion and return stats."""
     try:
         t0 = time.time()
         resp = await client.chat.completions.create(
@@ -41,48 +36,50 @@ async def run_one(i: int):
         )
         t1 = time.time()
 
-        usage = resp.usage or {}
+        usage = resp.usage
+        prompt_tokens = usage.prompt_tokens if usage and usage.prompt_tokens is not None else 0
+        completion_tokens = (
+            usage.completion_tokens if usage and usage.completion_tokens is not None else 0
+        )
+        total_tokens = usage.total_tokens if usage and usage.total_tokens is not None else 0
+
         return {
             "ok": True,
             "latency": t1 - t0,
-            "prompt_tokens": usage.prompt_tokens or 0,
-            "completion_tokens": usage.completion_tokens or 0,
-            "total_tokens": usage.total_tokens or 0,
+            "prompt_tokens": prompt_tokens,
+            "completion_tokens": completion_tokens,
+            "total_tokens": total_tokens,
         }
     except Exception as e:
         return {"ok": False, "error": str(e)}
 
 
-# ------------------------------
-# Main benchmark
-# ------------------------------
-async def main():
-    print(f"Running {NUM_REQUESTS} concurrent requests...\n")
+async def batch_main():
+    print(f"Running {NUM_REQUESTS} concurrent non-streaming requests...\n")
 
     tasks = [asyncio.create_task(run_one(i)) for i in range(NUM_REQUESTS)]
     results = await asyncio.gather(*tasks)
 
     latencies = [r["latency"] for r in results if r["ok"]]
     total_tokens = sum(r["total_tokens"] for r in results if r["ok"])
+    errors = [r for r in results if not r["ok"]]
 
     if not latencies:
         print("No successful responses.")
+        if errors:
+            print("Sample error:", errors[0])
         return
 
-    # Compute stats
     latencies_sorted = sorted(latencies)
     p50 = median(latencies)
-    p90 = latencies_sorted[int(0.9 * len(latencies_sorted))]
-    p95 = latencies_sorted[int(0.95 * len(latencies_sorted))]
+    p90 = latencies_sorted[int(0.9 * len(latencies_sorted)) - 1]
+    p95 = latencies_sorted[int(0.95 * len(latencies_sorted)) - 1]
 
     avg = sum(latencies) / len(latencies)
-    total_time = max(latencies)  # wall time ≈ slowest request
-    throughput_tps = total_tokens / total_time
+    total_time = max(latencies)  # approx wall time with concurrent start
+    throughput_tps = total_tokens / total_time if total_time > 0 else 0.0
 
-    # ------------------------------
-    # Print results
-    # ------------------------------
-    print("===== Benchmark Results =====")
+    print("===== Non-Streaming Benchmark Results =====")
     print(f"Successful requests: {len(latencies)}/{NUM_REQUESTS}")
     print(f"Avg latency:   {avg:.3f}s")
     print(f"p50 latency:   {p50:.3f}s")
@@ -91,8 +88,19 @@ async def main():
     print()
     print(f"Total tokens:  {total_tokens}")
     print(f"Throughput:    {throughput_tps:.2f} tokens/sec (aggregate)")
-    print("=============================")
+    if errors:
+        print(f"\nErrors: {len(errors)}")
+        print("Sample error:", errors[0])
+    print("===========================================")
+
+async def single_main():
+    output = await run_one(1)
+    print(output)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    #asyncio.run(batch_main())
+    asyncio.run(single_main())
+
+
+

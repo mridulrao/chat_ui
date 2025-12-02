@@ -22,7 +22,7 @@ RUN pip3 install --upgrade pip && \
 
 # App layout
 WORKDIR /app
-COPY gateway_v2.py /app/gateway.py
+COPY gateway_v3.py /app/gateway.py
 
 # Models cache (persistent volume recommended)
 ENV VLLM_DOWNLOAD_DIR=/models
@@ -49,8 +49,8 @@ CMD ["/bin/bash", "-lc", "\
     --model ${MODEL_NAME} \
     --host ${OPENAI_HOST} --port ${OPENAI_PORT} \
     --download-dir ${VLLM_DOWNLOAD_DIR} \
-    --max-model-len 16384 \
-    --gpu-memory-utilization 0.90 \
+    --max-model-len 8192 \
+    --gpu-memory-utilization 0.85 \
     --tensor-parallel-size 1 \
     --enforce-eager \
   & \
