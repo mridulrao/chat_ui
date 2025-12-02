@@ -1,0 +1,190 @@
+You: hi
+
+[Generating response via gateway...]
+
+[Raw Model Output]: Hello! How can I assist you today? 😊
+
+Assistant: Hello! How can I assist you today? 😊
+
+You: I am doing good, can you tell me the wether today? 
+
+[Generating response via gateway...]
+
+[Raw Model Output]: Of course! Could you please let me know your location so I can check the weather for you? 😊
+
+Assistant: Of course! Could you please let me know your location so I can check the weather for you? 😊
+
+You: SF bay area
+
+[Generating response via gateway...]
+
+[Raw Model Output]: <tool_call>
+{"name": "get_weather", "arguments": {"location": "San Francisco Bay Area"}}
+</tool_call>
+
+[Found 1 tool call(s)]
+
+[Executing]: get_weather
+[Arguments]: {
+  "location": "San Francisco Bay Area"
+}
+[Result]: {
+  "result": "success",
+  "data": {
+    "location": "San Francisco Bay Area",
+    "date": "2025-12-01",
+    "temperature": "26\u00b0C",
+    "condition": "Cloudy",
+    "humidity": "73%",
+    "forecast": "High: 29\u00b0C, Low: 21\u00b0C"
+  }
+}
+
+[Generating response via gateway...]
+
+[Raw Model Output]: Here's the weather for the San Francisco Bay Area today:
+
+- **Temperature**: 26°C  
+- **Condition**: Cloudy  
+- **Humidity**: 73%  
+- **Forecast**: High of 29°C, Low of 21°C  
+
+It's a bit cool and cloudy, so pack a light jacket if you're heading out! 😊  
+Let me know if you'd like more details or help with something else! 🌤️
+
+Assistant: Here's the weather for the San Francisco Bay Area today:
+
+- **Temperature**: 26°C  
+- **Condition**: Cloudy  
+- **Humidity**: 73%  
+- **Forecast**: High of 29°C, Low of 21°C  
+
+It's a bit cool and cloudy, so pack a light jacket if you're heading out! 😊  
+Let me know if you'd like more details or help with something else! 🌤️
+
+You: I am thinking about going out for lunch, can you recommend some good place?
+
+[Generating response via gateway...]
+
+[Raw Model Output]: Of course! Could you let me know your preferred cuisine (e.g., Italian, Japanese, Mexican), location within the Bay Area (e.g., downtown, downtown San Francisco, Oakland), and if you have a budget preference (budget, moderate, or expensive)? That way, I can give you some great lunch recommendations! 😊
+
+Assistant: Of course! Could you let me know your preferred cuisine (e.g., Italian, Japanese, Mexican), location within the Bay Area (e.g., downtown, downtown San Francisco, Oakland), and if you have a budget preference (budget, moderate, or expensive)? That way, I can give you some great lunch recommendations! 😊
+
+You: in downtown, thinking of having Japanese today
+
+[Generating response via gateway...]
+
+[Raw Model Output]: <tool_call>
+{"name": "search_restaurants", "arguments": {"cuisine": "Japanese", "location": "downtown", "price_range": "moderate"}}
+</tool_call>
+
+[Found 1 tool call(s)]
+
+[Executing]: search_restaurants
+[Arguments]: {
+  "cuisine": "Japanese",
+  "location": "downtown",
+  "price_range": "moderate"
+}
+[Result]: {
+  "result": "success",
+  "search_params": {
+    "cuisine": "Japanese",
+    "location": "downtown",
+    "price_range": "moderate"
+  },
+  "count": 3,
+  "restaurants": [
+    {
+      "name": "The Japanese House",
+      "rating": 4.5,
+      "price_range": "moderate",
+      "address": "123 Main St, downtown",
+      "cuisine": "Japanese",
+      "phone": "+1-555-0123",
+      "popular_dishes": [
+        "Signature Special",
+        "Chef's Recommendation",
+        "House Favorite"
+      ]
+    },
+    {
+      "name": "Japanese Delights",
+      "rating": 4.2,
+      "price_range": "moderate",
+      "address": "456 Oak Ave, downtown",
+      "cuisine": "Japanese",
+      "phone": "+1-555-0456",
+      "popular_dishes": [
+        "Traditional Platter",
+        "Fusion Special",
+        "Tasting Menu"
+      ]
+    },
+    {
+      "name": "Authentic Japanese Kitchen",
+      "rating": 4.7,
+      "price_range": "moderate",
+      "address": "789 Elm St, downtown",
+      "cuisine": "Japanese",
+      "phone": "+1-555-0789",
+      "popular_dishes": [
+        "Classic Recipe",
+        "Modern Twist",
+        "Family Platter"
+      ]
+    }
+  ]
+}
+
+[Generating response via gateway...]
+
+[Raw Model Output]: Here are some excellent Japanese lunch spots in downtown San Francisco:
+
+1. **The Japanese House**  
+   📍 123 Main St, downtown  
+   ⭐ 4.5/5 | Moderate price  
+   🍣 Popular dishes: Signature Special, Chef's Recommendation, House Favorite  
+   📞 +1-555-0123  
+
+2. **Japanese Delights**  
+   📍 456 Oak Ave, downtown  
+   ⭐ 4.2/5 | Moderate price  
+   🍣 Popular dishes: Traditional Platter, Fusion Special, Tasting Menu  
+   📞 +1-555-0456  
+
+3. **Authentic Japanese Kitchen**  
+   📍 789 Elm St, downtown  
+   ⭐ 4.7/5 | Moderate price  
+   🍣 Popular dishes: Classic Recipe, Modern Twist, Family Platter  
+   📞 +1-555-0789  
+
+The **Authentic Japanese Kitchen** has the highest rating (4.7/5) and might be a great choice if you're looking for a top-quality experience!  
+
+Let me know if you'd like help with reservations or more details! 😊🍜
+
+Assistant: Here are some excellent Japanese lunch spots in downtown San Francisco:
+
+1. **The Japanese House**  
+   📍 123 Main St, downtown  
+   ⭐ 4.5/5 | Moderate price  
+   🍣 Popular dishes: Signature Special, Chef's Recommendation, House Favorite  
+   📞 +1-555-0123  
+
+2. **Japanese Delights**  
+   📍 456 Oak Ave, downtown  
+   ⭐ 4.2/5 | Moderate price  
+   🍣 Popular dishes: Traditional Platter, Fusion Special, Tasting Menu  
+   📞 +1-555-0456  
+
+3. **Authentic Japanese Kitchen**  
+   📍 789 Elm St, downtown  
+   ⭐ 4.7/5 | Moderate price  
+   🍣 Popular dishes: Classic Recipe, Modern Twist, Family Platter  
+   📞 +1-555-0789  
+
+The **Authentic Japanese Kitchen** has the highest rating (4.7/5) and might be a great choice if you're looking for a top-quality experience!  
+
+Let me know if you'd like help with reservations or more details! 😊🍜
+
+You: 

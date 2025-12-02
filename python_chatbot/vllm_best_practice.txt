@@ -1,0 +1,26 @@
+1) Pick the instruct model note the base - better for instruction folloqing + tool calling 
+2) Use max context only when truly needed, most of the chat application or voice applications dont require the entire chat context, reducing the chat context increase the inference speed 
+3) KV cache grows linearly, meaning keeing the chat context small give more room for cache 
+4) Can you queatization for 4b models, but its fine to use base images if you have large gpu. Mostly useful in decreasing the bill. Use the AWQ or GPTQ quantization, accuray is almost same - make sure to validate
+5) On VLLM, use natively support qunatization - stay away from wierd bugs 
+6) Add 30-40% memory for KV cache, activation or fragmentation 
+
+Vllm specific flags to set - 
+1) let dtype by auto --chose based on whats available 
+2) --max_model_len keep it bounded 
+3) --gpu-memory-utilization 0.85–0.9 leave some room for CUDA 
+4) --max-num-batched-tokens, this is responcible for througputs Too low → under-utilized GPU; too high → latency spikes.
+5) --tensor-parallel-size=1 Tensor parallelism is not required for small models, used only when loading the model in multilple gpus 
+6) Use continous batching 
+7) Keep max_num_batched_tokens max_tokens small for real time responces 
+8) Keep streaming 
+9) Keep max_num_batched_tokens max_tokens high for offline responses 
+
+Desinging the gateway - 
+1) Per-request max_tokens (256–512)
+2) Per-request timeout (30–60s)
+3) Request-rate limiting per API key
+4) Implement health, streaming and non-streaming endpoints 
+5) Track QPS and concurrent requests
+6) p50 / p90 / p99 latency
+7) Tokens per second (TTFT + overall throughput)
