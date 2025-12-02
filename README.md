@@ -1,2 +1,34 @@
-A hobby project to learn JS. 
-** Vibe coded ** 
+Deploying SLM (mainly qwen 4b) via LLM, implementing streaming, non streaming endpoints
+Demo agent to see capabilities of Qwen4b instruct with 4-5 functions tools
+Few tests I ran - 
+20 concurrent non-streaming requests
+===== Non-Streaming Benchmark Results =====
+Successful requests: 20/20
+Avg latency:   13.337s
+p50 latency:   13.768s
+p90 latency:   14.091s
+p95 latency:   14.107s
+
+Total tokens:  5356
+Throughput:    379.62 tokens/sec (aggregate)
+===========================================
+
+20 concurrent STREAMING requests...
+===== Streaming Benchmark Results =====
+Successful requests: 20/20
+Avg latency:   15.735s
+p50 latency:   16.508s
+p90 latency:   16.846s
+p95 latency:   16.852s
+
+TTFT p50:      1.147s
+TTFT p90:      1.319s
+TTFT p95:      1.333s
+
+Total tokens:  5310
+Throughput:    312.98 tokens/sec (aggregate)
+=======================================
+
+
+NOTE: ** JS is Vibe coded ** 
+
