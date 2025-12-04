@@ -4,6 +4,9 @@ import os
 from statistics import median
 
 from openai import AsyncOpenAI
+from token_tracker import TokenUsageTracker
+
+tracker = TokenUsageTracker()
 
 # ------------------------------
 # Config
@@ -22,36 +25,20 @@ client = AsyncOpenAI(
 
 
 async def run_one(i: int):
-    """Run one chat completion and return stats."""
-    try:
-        t0 = time.time()
-        resp = await client.chat.completions.create(
-            model=MODEL,
-            messages=[
-                {"role": "system", "content": "You are a concise, helpful assistant."},
-                {"role": "user", "content": "Explain KV caching like I'm five."},
-            ],
-            max_tokens=MAX_TOKENS,
-            temperature=0.7,
-        )
-        t1 = time.time()
-
-        usage = resp.usage
-        prompt_tokens = usage.prompt_tokens if usage and usage.prompt_tokens is not None else 0
-        completion_tokens = (
-            usage.completion_tokens if usage and usage.completion_tokens is not None else 0
-        )
-        total_tokens = usage.total_tokens if usage and usage.total_tokens is not None else 0
-
-        return {
-            "ok": True,
-            "latency": t1 - t0,
-            "prompt_tokens": prompt_tokens,
-            "completion_tokens": completion_tokens,
-            "total_tokens": total_tokens,
-        }
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    t0 = time.time()
+    resp = await client.chat.completions.create(
+        model=MODEL,
+        messages=[...],
+        max_tokens=MAX_TOKENS,
+        temperature=0.7,
+    )
+    t1 = time.time()
+    tracker.add_from_openai_usage(
+        resp.usage,
+        latency_seconds=t1 - t0,
+        meta={"index": i, "endpoint": "non_stream"},
+    )
+    return {"ok": True, "latency": t1 - t0}
 
 
 async def batch_main():
@@ -88,6 +75,7 @@ async def batch_main():
     print()
     print(f"Total tokens:  {total_tokens}")
     print(f"Throughput:    {throughput_tps:.2f} tokens/sec (aggregate)")
+    print("Token summary:", tracker.summary())
     if errors:
         print(f"\nErrors: {len(errors)}")
         print("Sample error:", errors[0])

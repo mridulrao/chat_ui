@@ -6,8 +6,12 @@ import re
 
 from openai import OpenAI
 
-from function_tools import FUNCTION_MAP, TOOLS, execute_function_call
-from primary_instructions import instructions
+from agent.function_tools import FUNCTION_MAP, TOOLS, execute_function_call
+from agent.primary_instructions import instructions
+
+from token_tracker import TokenUsageTracker
+
+tracker = TokenUsageTracker() 
 
 # ------------------------------
 # OpenAI client (your gateway)
