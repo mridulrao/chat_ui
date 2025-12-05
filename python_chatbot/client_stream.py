@@ -4,12 +4,15 @@ import os
 from statistics import median
 
 from openai import AsyncOpenAI
+from token_tracker import TokenUsageTracker
+
+tracker = TokenUsageTracker()
 
 API_KEY = os.getenv("OPENAI_API_KEY", "devkey")
-BASE_URL = os.getenv("OPENAI_BASE", "https://8m6w52rqlqso7s-3000.proxy.runpod.net/v1")
+BASE_URL = os.getenv("OPENAI_BASE", "https://1yfztt1w2bp124-3000.proxy.runpod.net/v1")
 MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 
-NUM_REQUESTS = int(os.getenv("BENCH_N", "20"))
+NUM_REQUESTS = int(os.getenv("BENCH_N", "2"))
 MAX_TOKENS = int(os.getenv("BENCH_MAX_TOKENS", "256"))
 
 client = AsyncOpenAI(
@@ -63,12 +66,16 @@ async def run_one_stream(i: int):
                         break
 
             if hasattr(event, "usage") and event.usage is not None:
-                u = event.usage
-                prompt_tokens = u.prompt_tokens or 0
-                completion_tokens = u.completion_tokens or 0
-                total_tokens = u.total_tokens or 0
+                final_usage = event.usage
 
         t_end = time.time()
+
+        tracker.add_from_openai_usage(
+            final_usage,
+            latency_seconds=t_end - t_start,
+            ttft_seconds=ttft,
+            meta={"index": i, "endpoint": "stream"},
+        )
 
         return {
             "ok": True,
@@ -127,6 +134,7 @@ async def main():
     print()
     print(f"Total tokens:  {total_tokens}")
     print(f"Throughput:    {throughput_tps:.2f} tokens/sec (aggregate)")
+    print("Token summary:", tracker.summary())
     if errors:
         print(f"\nErrors: {len(errors)}")
         print("Sample error:", errors[0])

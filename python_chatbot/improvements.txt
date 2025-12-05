@@ -1,0 +1,49 @@
+Here is the same content rewritten in your style, without markdown, and shaped like clean journal notes.
+
+---
+
+Improvements Applied and Their Impact on TTFT and Throughput
+
+1. Removed the --enforce-eager flag
+
+Removing this flag let vLLM use its normal scheduling instead of forcing everything into eager mode. Eager mode is useful for debugging but adds overhead during both prefill and decode. Once removed, vLLM falls back to optimized kernels, which reduces TTFT after the model warms up. This improves responsiveness for real-time use cases. The downside is that throughput patterns may shift since the scheduler now runs normally and may batch less aggressively when concurrency is low.
+
+2. Set batching limits: --max-num-batched-tokens 1024 and --max-num-seqs 4
+
+Reducing these batching parameters forces the system to operate on smaller batches. This helps TTFT because requests do not sit waiting in the scheduler for a large batch to form. By capping both the number of sequences in a batch and the token budget per batch, the scheduler prioritizes quick turnaround for each request rather than maximizing GPU utilization.
+
+However, reducing batch size naturally lowers throughput. Larger batches give higher tokens-per-second when you have lots of concurrent requests. Smaller batches leave the GPU underutilized, so total throughput drops. This tradeoff is acceptable for low-latency agents but not ideal for workloads that need to serve many concurrent users.
+
+Results with this configuration
+
+For 20 concurrent requests, latency became much worse:
+
+Non-streaming (20 concurrent):
+Avg latency ~26s
+p90 ~42s
+Throughput ~116 tokens/sec
+
+Streaming (20 concurrent):
+Avg latency ~24s
+TTFT p50 ~16s
+TTFT p95 ~31s
+Throughput ~115 tokens/sec
+
+These numbers are high because max-num-seqs=4 means only 4 sequences can run at once. With 20 concurrent requests, the remaining 16 wait in a queue and are processed in waves. Each wave adds several seconds of delay, which shows up directly as high TTFT and high end-to-end latency.
+
+For 2 concurrent requests, TTFT becomes fast because concurrency is below the limit:
+
+Streaming (2 concurrent):
+TTFT ~0.45s
+Avg latency ~9.3s
+Throughput ~61 tokens/sec
+
+Non-streaming (2 concurrent):
+Avg latency ~9.38s
+Throughput ~61 tokens/sec
+
+Here TTFT improves dramatically because there is no queuing. The remaining ~9s latency is just the time it takes the model to generate around 280 tokens at roughly 60 tokens/sec. The config is clearly optimised for small concurrency: TTFT becomes low and stable, but throughput is lower because the GPU is not fully utilized.
+
+Conclusion
+
+With these settings, TTFT stays low as long as concurrency is below the max-num-seqs cap (2 to 4 calls at once). As concurrency increases, queuing dominates and both TTFT and total latency deteriorate, while throughput remains low due to intentionally small batch sizes. To keep TTFT low and also maintain high throughput at higher concurrency, a stronger GPU or more GPUs are needed; an L4 with tight batching limits is better suited for small numbers of low-latency sessions rather than many concurrent calls.

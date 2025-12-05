@@ -12,6 +12,8 @@ import httpx
 import orjson
 from fastapi import FastAPI, Request, Header, HTTPException
 from fastapi.responses import ORJSONResponse, StreamingResponse
+from pydantic import BaseModel
+from transformers import AutoTokenizer
 
 # -------- Redis (async) or in-memory fallback --------
 try:
@@ -38,6 +40,10 @@ HTTP_TIMEOUT = httpx.Timeout(600, read=600)
 
 # Global HTTP client
 _http_client: Optional[httpx.AsyncClient] = None
+
+# Global tokenizer
+_tokenizer = None
+TOKENIZER_MODEL_NAME = os.getenv("TOKENIZER_MODEL_NAME", MODEL_NAME)
 
 
 # =========================
@@ -153,10 +159,84 @@ def _ensure_client() -> httpx.AsyncClient:
     return _http_client
 
 
+def _get_tokenizer():
+    if _tokenizer is None:
+        raise HTTPException(500, "Tokenizer not initialized")
+    return _tokenizer
+
+
+def _flatten_message_content(content: Any) -> str:
+    """
+    Convert OpenAI-style message `content` into a plain string for token counting.
+    Handles:
+      - string
+      - list[{"type": "text", "text": "..."}]
+      - other blocks or tool calls (fallback to JSON)
+    """
+    if isinstance(content, str):
+        return content
+
+    if isinstance(content, list):
+        parts = []
+        for c in content:
+            if isinstance(c, dict):
+                # text blocks
+                if c.get("type") == "text" and "text" in c:
+                    parts.append(str(c["text"]))
+                else:
+                    parts.append(json.dumps(c, ensure_ascii=False))
+            else:
+                parts.append(str(c))
+        return "\n".join(parts)
+
+    # Fallback: dump as JSON
+    return json.dumps(content, ensure_ascii=False)
+
+
+def count_tokens_text(text: str) -> int:
+    tok = _get_tokenizer()
+    # We don't add special tokens here; this gives you raw text cost.
+    return len(tok.encode(text, add_special_tokens=False))
+
+
+def count_tokens_messages(
+    messages: List[Dict[str, Any]]
+) -> Tuple[int, List[Dict[str, Any]]]:
+    """
+    Approximate token count for a chat conversation.
+    We:
+      - count tokens per message based on content only
+      - sum them for messages_tokens
+    NOTE: this does not include special chat template tokens, but is very close.
+    """
+    per_message = []
+    total = 0
+
+    for idx, m in enumerate(messages):
+        role = m.get("role", "user")
+        content = _flatten_message_content(m.get("content", ""))
+
+        # You can include role in the counted text if you want:
+        # text_for_count = f"{role}: {content}"
+        text_for_count = content
+
+        tokens = count_tokens_text(text_for_count)
+        total += tokens
+        per_message.append(
+            {
+                "index": idx,
+                "role": role,
+                "tokens": tokens,
+                "chars": len(content),
+            }
+        )
+
+    return total, per_message
+
+
 # =========================
 # Upstream calls (vLLM)
 # =========================
-
 async def _call_vllm_nonstream(payload: Dict[str, Any]):
     client = _ensure_client()
     url = f"{OPENAI_BASE}/chat/completions"
@@ -178,7 +258,11 @@ async def _call_vllm_nonstream(payload: Dict[str, Any]):
     }
 
 
-async def _stream_vllm(payload: Dict[str, Any], sid: str, merged_messages: List[Dict[str, Any]]):
+async def _stream_vllm(
+    payload: Dict[str, Any],
+    sid: str,
+    merged_messages: List[Dict[str, Any]],
+):
     client = _ensure_client()
     url = f"{OPENAI_BASE}/chat/completions"
 
@@ -217,7 +301,7 @@ async def _stream_vllm(payload: Dict[str, Any], sid: str, merged_messages: List[
 
             try:
                 chunk = orjson.loads(data_str)
-            except:
+            except Exception:
                 yield (line + "\n\n").encode()
                 continue
 
@@ -228,7 +312,9 @@ async def _stream_vllm(payload: Dict[str, Any], sid: str, merged_messages: List[
                     delta = choices[0].get("delta") or {}
                     if any(k in delta for k in ("content", "role", "tool_calls")):
                         first_token_time = time.time()
-                        print(f"[STREAM] session={sid} TTFT={first_token_time - call_start:.3f}")
+                        print(
+                            f"[STREAM] session={sid} TTFT={first_token_time - call_start:.3f}"
+                        )
 
             # Usage
             usage = chunk.get("usage") or {}
@@ -276,16 +362,20 @@ async def _stream_vllm(payload: Dict[str, Any], sid: str, merged_messages: List[
 # =========================
 app = FastAPI(
     title="Qwen Gateway",
-    version="0.4.0",
+    version="0.5.0",
     default_response_class=ORJSONResponse,
 )
 
 
 @app.on_event("startup")
 async def startup():
-    global _http_client
+    global _http_client, _tokenizer
     await store.init()
     _http_client = httpx.AsyncClient(timeout=HTTP_TIMEOUT)
+
+    # Initialize tokenizer once at startup
+    # Uses TOKENIZER_MODEL_NAME, defaulting to MODEL_NAME
+    _tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_MODEL_NAME)
 
 
 @app.on_event("shutdown")
@@ -300,7 +390,12 @@ async def shutdown():
 async def unhandled_exc(_req: Request, exc: Exception):
     return ORJSONResponse(
         status_code=500,
-        content={"error": {"message": str(exc), "trace": traceback.format_exc()[:2000]}},
+        content={
+            "error": {
+                "message": str(exc),
+                "trace": traceback.format_exc()[:2000],
+            }
+        },
     )
 
 
@@ -313,6 +408,74 @@ async def health():
 async def get_session_metrics(session_id: str):
     metrics = await store.get_json(_metrics_key(session_id)) or {}
     return {"session_id": session_id, "metrics": metrics}
+
+
+# =========================
+# Token counting endpoint
+# =========================
+class TokenCountRequest(BaseModel):
+    model: Optional[str] = None  # reserved if you later support multiple tokenizers
+    text: Optional[str] = None
+    messages: Optional[List[Dict[str, Any]]] = None
+
+    def validate_payload(self):
+        if self.text is None and self.messages is None:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one of `text` or `messages` must be provided",
+            )
+
+
+class TokenCountResponse(BaseModel):
+    model: str
+    total_tokens: int
+    text_tokens: Optional[int] = None
+    messages_tokens: Optional[int] = None
+    per_message: Optional[List[Dict[str, Any]]] = None
+
+
+@app.post("/v1/tokens/count", response_model=TokenCountResponse)
+async def tokens_count(
+    request: TokenCountRequest,
+    authorization: str = Header(None),
+):
+    """
+    Calculate approximate token usage for:
+      - plain text (system prompt, instructions, etc.)
+      - chat conversation (OpenAI-style `messages`)
+    """
+    _auth(authorization)
+
+    request.validate_payload()
+
+    # For now we ignore request.model and always use TOKENIZER_MODEL_NAME
+    model_name = TOKENIZER_MODEL_NAME
+
+    text_tokens: Optional[int] = None
+    messages_tokens: Optional[int] = None
+    per_message: Optional[List[Dict[str, Any]]] = None
+
+    # Count text if provided
+    if request.text is not None:
+        text_tokens = count_tokens_text(request.text)
+
+    # Count messages if provided
+    if request.messages is not None:
+        messages_tokens, per_message = count_tokens_messages(request.messages)
+
+    total_tokens = 0
+    if text_tokens is not None:
+        total_tokens += text_tokens
+    if messages_tokens is not None:
+        total_tokens += messages_tokens
+
+    return TokenCountResponse(
+        model=model_name,
+        total_tokens=total_tokens,
+        text_tokens=text_tokens,
+        messages_tokens=messages_tokens,
+        per_message=per_message,
+    )
 
 
 # =========================
@@ -391,7 +554,7 @@ async def chat_completions(
 @app.post("/v1/chat/batch")
 async def chat_batch(
     request: Request,
-    authorization: str = Header(None)
+    authorization: str = Header(None),
 ):
     _auth(authorization)
 
@@ -419,14 +582,27 @@ async def chat_batch(
             data, metrics = await _call_vllm_nonstream(payload)
             return {"index": i, "ok": True, "response": data, "metrics": metrics}
         except HTTPException as e:
-            return {"index": i, "ok": False, "error": {"status": e.status_code, "message": str(e.detail)}}
+            return {
+                "index": i,
+                "ok": False,
+                "error": {
+                    "status": e.status_code,
+                    "message": str(e.detail),
+                },
+            }
 
     start = time.time()
-    results = await asyncio.gather(*[handle_one(i, p) for i, p in enumerate(items)])
+    results = await asyncio.gather(
+        *[handle_one(i, p) for i, p in enumerate(items)]
+    )
     wall = time.time() - start
 
-    total_prompt = sum(r.get("metrics", {}).get("prompt_tokens", 0) for r in results if r["ok"])
-    total_completion = sum(r.get("metrics", {}).get("completion_tokens", 0) for r in results if r["ok"])
+    total_prompt = sum(
+        r.get("metrics", {}).get("prompt_tokens", 0) for r in results if r["ok"]
+    )
+    total_completion = sum(
+        r.get("metrics", {}).get("completion_tokens", 0) for r in results if r["ok"]
+    )
     total_tokens = total_prompt + total_completion
     tps = total_tokens / wall if wall > 0 else None
 
