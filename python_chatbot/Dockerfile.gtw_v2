@@ -7,25 +7,30 @@ ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
-
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    python3 python3-pip python3-venv ca-certificates curl git \
+    python3 python3-pip python3-venv \
+    ca-certificates curl git \
+    build-essential \
+    python3-dev \
  && rm -rf /var/lib/apt/lists/*
-
 
 RUN pip3 install --upgrade pip && \
     pip3 install --index-url https://download.pytorch.org/whl/cu121 torch && \
     pip3 install \
       "vllm>=0.6.2" \
       fastapi uvicorn uvloop httpx orjson pydantic-settings \
-      redis
+      redis \
+      transformers
+
+# (optional but nice: share cache between vLLM & transformers)
+ENV VLLM_DOWNLOAD_DIR=/models \
+    HF_HOME=/models \
+    TRANSFORMERS_CACHE=/models
 
 # App layout
 WORKDIR /app
 COPY gateway_v3.py /app/gateway.py
 
-# Models cache (persistent volume recommended)
-ENV VLLM_DOWNLOAD_DIR=/models
 RUN mkdir -p /models
 
 # Default env (override in Runpod)
@@ -40,9 +45,7 @@ ENV MODEL_NAME="Qwen/Qwen3-4B-Instruct-2507" \
     UPSTREAM_OPENAI="http://127.0.0.1:8000/v1" \
     REDIS_URL=""
 
-# Expose ports
 EXPOSE 8000 3000
-
 
 CMD ["/bin/bash", "-lc", "\
   python3 -m vllm.entrypoints.openai.api_server \
@@ -52,7 +55,8 @@ CMD ["/bin/bash", "-lc", "\
     --max-model-len 8192 \
     --gpu-memory-utilization 0.85 \
     --tensor-parallel-size 1 \
-    --enforce-eager \
+    --max-num-batched-tokens 1024 \
+    --max-num-seqs 4 \
   & \
   uvicorn gateway:app --host ${GATEWAY_HOST} --port ${GATEWAY_PORT} \
 "]

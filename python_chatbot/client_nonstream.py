@@ -9,10 +9,10 @@ from openai import AsyncOpenAI
 # Config
 # ------------------------------
 API_KEY = os.getenv("OPENAI_API_KEY", "devkey")
-BASE_URL = os.getenv("OPENAI_BASE", "https://8m6w52rqlqso7s-3000.proxy.runpod.net/v1")
+BASE_URL = os.getenv("OPENAI_BASE", "https://1yfztt1w2bp124-3000.proxy.runpod.net/v1")
 MODEL = "Qwen/Qwen3-4B-Instruct-2507"
 
-NUM_REQUESTS = int(os.getenv("BENCH_N", "20"))   # concurrent requests
+NUM_REQUESTS = int(os.getenv("BENCH_N", "2"))   # concurrent requests
 MAX_TOKENS = int(os.getenv("BENCH_MAX_TOKENS", "256"))
 
 client = AsyncOpenAI(
@@ -99,8 +99,8 @@ async def single_main():
 
 
 if __name__ == "__main__":
-    #asyncio.run(batch_main())
-    asyncio.run(single_main())
+    asyncio.run(batch_main())
+    #asyncio.run(single_main())
 
 
 

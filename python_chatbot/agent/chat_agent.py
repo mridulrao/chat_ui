@@ -13,7 +13,7 @@ from primary_instructions import instructions
 # OpenAI client (your gateway)
 # ------------------------------
 API_KEY = os.getenv("OPENAI_API_KEY", "devkey")   # same as API_KEYS in gateway
-BASE_URL = os.getenv("OPENAI_BASE", "https://8m6w52rqlqso7s-3000.proxy.runpod.net/v1")
+BASE_URL = os.getenv("OPENAI_BASE", "https://1yfztt1w2bp124-3000.proxy.runpod.net/v1")
 MODEL = os.getenv("MODEL_NAME", "Qwen/Qwen3-4B-Instruct-2507")
 
 client = OpenAI(
@@ -46,32 +46,68 @@ def extract_assistant_response(output_text: str):
     return cleaned_text.strip()
 
 
-def call_model_with_tools(messages, max_tokens: int = 512, temperature: float = 0.2):
+def _chunk_to_text(delta) -> str:
     """
-    Call your Qwen model via the OpenAI-compatible gateway,
-    passing messages + tools, and return the raw text content.
+    Handle OpenAI ChatCompletionChunk delta.content, which can be:
+    - a plain string, or
+    - a list of content parts with type "text"
     """
-    resp = client.chat.completions.create(
-		    model=MODEL,
-		    messages=messages,
-		    tools=TOOLS,            # still pass tools so Qwen sees schema
-		    tool_choice="none",     # <-- key change: disable auto tool choice
-		    max_tokens=max_tokens,
-		    temperature=temperature,
-		)
+    if delta is None:
+        return ""
 
-    msg = resp.choices[0].message
+    content = getattr(delta, "content", None)
+    if isinstance(content, str):
+        return content
 
-    if isinstance(msg.content, str):
-        output_text = msg.content
-    else:
-        parts = []
-        for part in msg.content:
-            if part.get("type") == "text":
-                parts.append(part["text"].get("value", ""))
-        output_text = "".join(parts)
+    # Newer clients: content is a list of parts
+    text_parts = []
+    if isinstance(content, list):
+        for part in content:
+            if isinstance(part, dict) and part.get("type") == "text":
+                txt = part.get("text", {}).get("value", "")
+                if txt:
+                    text_parts.append(txt)
+    return "".join(text_parts)
 
-    return output_text
+
+def call_model_with_tools_stream(messages, max_tokens: int = 512, temperature: float = 0.2) -> str:
+    """
+    Call your Qwen model via the OpenAI-compatible gateway in STREAMING mode.
+    - Uses tools, but disables OpenAI-style auto tool_choice (we parse <tool_call> blocks ourselves).
+    - Streams chunks to stdout as they arrive.
+    - Returns the full concatenated text for tool-call parsing.
+    """
+    stream = client.chat.completions.create(
+        model=MODEL,
+        messages=messages,
+        tools=TOOLS,           # still pass tools so Qwen sees schema
+        tool_choice="none",    # we handle tool-calls manually via <tool_call>...</tool_call>
+        max_tokens=max_tokens,
+        temperature=temperature,
+        stream=True,
+    )
+
+    full_text_chunks = []
+
+    print("[Streaming from gateway...]\n", end="", flush=True)
+
+    for event in stream:
+        # Each event is a ChatCompletionChunk
+        if not event.choices:
+            continue
+
+        delta = event.choices[0].delta
+        piece = _chunk_to_text(delta)
+
+        if piece:
+            # print incremental piece for interactive feel
+            print(piece, end="", flush=True)
+            full_text_chunks.append(piece)
+
+    print()  # newline after full streamed response
+
+    return "".join(full_text_chunks)
+
 
 def run_conversation_loop_http(initial_message: str | None = None):
     """
@@ -102,12 +138,12 @@ def run_conversation_loop_http(initial_message: str | None = None):
 
             messages.append({"role": "user", "content": user_input})
 
-        print("\n[Generating response via gateway...]")
+        print("\n[Generating response via gateway (streaming)...]")
 
-        # ---- Call model through gateway ----
-        output_text = call_model_with_tools(messages)
+        # ---- Call model through gateway (STREAMING) ----
+        output_text = call_model_with_tools_stream(messages)
 
-        print(f"\n[Raw Model Output]: {output_text}")
+        print(f"\n[Raw Model Output Collected]: {output_text!r}")
 
         # ---- Parse tool calls + assistant text ----
         tool_calls = extract_tool_calls(output_text)
@@ -116,7 +152,7 @@ def run_conversation_loop_http(initial_message: str | None = None):
         # Add assistant text message if present
         if assistant_text:
             messages.append({"role": "assistant", "content": assistant_text})
-            print(f"\nAssistant: {assistant_text}")
+            print(f"\nAssistant (parsed): {assistant_text}")
 
         # If there are tool calls, execute them and append tool messages,
         # then continue loop WITHOUT asking user again.
@@ -160,8 +196,6 @@ def run_conversation_loop_http(initial_message: str | None = None):
         # No tool calls → now we wait for user input next iteration
         # (loop will prompt because last_role is 'assistant')
 
+
 if __name__ == "__main__":
     run_conversation_loop_http()
-
-
-
