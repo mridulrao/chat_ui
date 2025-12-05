@@ -1,7 +1,3 @@
-Here is the same content rewritten in your style, without markdown, and shaped like clean journal notes.
-
----
-
 Improvements Applied and Their Impact on TTFT and Throughput
 
 1. Removed the --enforce-eager flag
