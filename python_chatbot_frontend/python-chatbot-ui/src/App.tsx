@@ -20,6 +20,8 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const [uploadedFile, setUploadedFile] = useState<File | null>(null);
 
   useEffect(() => subscribe(setMessages), []);
   useEffect(() => {
@@ -58,6 +60,22 @@ export default function App() {
     if (e.key === "Enter" && text.trim()) {
       e.preventDefault();
       void handleSubmit(text);
+    }
+  };
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0] || null;
+    if (!f) return;
+    if (
+      f.type ===
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ||
+      f.name.toLowerCase().endsWith(".docx")
+    ) {
+      setUploadedFile(f);
+      setError(null);
+    } else {
+      setUploadedFile(null);
+      setError("Please upload a .docx file.");
     }
   };
 
@@ -174,6 +192,42 @@ export default function App() {
           background: "#ffffff",
         }}
       >
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+          onChange={onFileChange}
+          style={{ display: "none" }}
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          style={{
+            padding: "0.9rem 1.1rem",
+            borderRadius: 12,
+            border: "1px solid #d1d5db",
+            background: "#fff",
+            cursor: "pointer",
+            fontWeight: 600,
+          }}
+        >
+          Upload
+        </button>
+        {uploadedFile && (
+          <div
+            style={{
+              alignSelf: "center",
+              fontSize: 12,
+              color: "#374151",
+              padding: "0 0.25rem",
+              whiteSpace: "nowrap",
+              overflow: "hidden",
+              textOverflow: "ellipsis",
+              maxWidth: "30ch",
+            }}
+          >
+            {uploadedFile.name}
+          </div>
+        )}
         <input
           type="text"
           placeholder="Type a message and press Enter…"

@@ -1,6 +1,5 @@
 import './index.css';
 
-import React from 'react';
 import { Routes, Route, Navigate } from 'react-router-dom';
 import CanvasPage from './pages/CanvasPage.jsx';
 
