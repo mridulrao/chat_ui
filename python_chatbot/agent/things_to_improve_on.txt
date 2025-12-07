@@ -1,0 +1,41 @@
+1) Per GPU max concurrency setup - how many concuurent request it can process keeping the TTFT low after which horizontal scaling would be required 
+-- TTFT depends on three factor -> conccurency setup + queuing time + decoding time 
+queuing time depends on how many concurrent sequence model can run and then how many reqests are queued 
+
+Decoding Time depends on the following - 
+2) Thoughts about KV cache 
+a) KV cache grows linearly - so technically for each token we have we will store K and V corresponding to it 
+b) So if sequence length is N (total tokens system prompt + user-agent turn + tool calling) we will have N length KV cache 
+In more depth its like this(decomposing N length KV cache) - 
+For each layer and head we store K and V
+so memory becomes ~ num_layers * num_heads * d_head(per head dimension) * sequence_length
+
+c) Making things concurrent - There are M request of N length, then KV cache would be N*M -- might become too big
+
+d) vLLM use paged KV cache - already trying to balance the fragmentation of KV caches - but the fact remains the same, it will grow as conversation grows and concurrency grows 
+In paged-attention: 
+KV blocks belong to a specific sequence ID
+When that sequence is closed or no longer referenced, vLLM marks those blocks free
+New sequences reuse those blocks
+
+Let l be the sequence length
+Prefill Phase: (initially we do this -- our system prompt, tools, conversations) - O(l^2)
+Why O(l^2) - 
+Well technically we assume attention is O(l^2*d (head dimension)) but we can O(l^2) if we ignore the head dimension
+Prefill is done every time 
+Decode Phase: O(l) as only the K comparison is done 
+
+So 10th token is fast but 500th token is tough 1000th token is more tough, d grew to 1000
+
+KV cache is stored in GPU -> storing everything on VRAM 
+
+TTFT is affected by - 
+1) Prefill - which is obvious (this is the step we apply attention)
+2) Queue time - which is also obvious if we dont tune the max concurrent support 
+3) Decoding time depends on the history -> like how big the history we have 
+
+Few things we can improve on - 
+1) Clear the unused sessions 
+2) Truncate the history - since in every time we send the request, KV cahe is generated again (Prefill + Decoding)
+3) Enfore per-session token budget 
+4) Bound generation length
