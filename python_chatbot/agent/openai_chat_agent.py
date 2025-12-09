@@ -13,7 +13,7 @@ from agent.primary_instructions import instructions
 # ------------------------------
 # OpenAI client (direct to OpenAI)
 # ------------------------------
-API_KEY = os.getenv("OPENAI_API_KEY", "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")
+API_KEY = os.getenv("OPENAI_API_KEY", "")
 # Allow override, but default to official OpenAI endpoint
 BASE_URL = os.getenv("OPENAI_BASE", "https://api.openai.com/v1")
 MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1")
