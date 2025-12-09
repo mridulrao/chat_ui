@@ -1,88 +1,27 @@
-# agent_gateway_loop.py
+# agent_openai_loop.py
 
 import os
 import json
 import re
 import time
-import requests 
+
 from openai import OpenAI
 
 from agent.function_tools import FUNCTION_MAP, TOOLS, execute_function_call
 from agent.primary_instructions import instructions
 
-from token_tracker import TokenUsageTracker
-
-tracker = TokenUsageTracker()
-
 # ------------------------------
-# OpenAI client (your gateway)
+# OpenAI client (direct to OpenAI)
 # ------------------------------
-API_KEY = os.getenv("OPENAI_API_KEY", "devkey")   # same as API_KEYS in gateway
-BASE_URL = os.getenv("OPENAI_BASE", "https://utjykagmna8po3-3000.proxy.runpod.net/v1")
-MODEL = os.getenv("MODEL_NAME", "Qwen/Qwen3-4B-Instruct-2507")
+API_KEY = os.getenv("OPENAI_API_KEY", "")
+# Allow override, but default to official OpenAI endpoint
+BASE_URL = os.getenv("OPENAI_BASE", "https://api.openai.com/v1")
+MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1")
 
 client = OpenAI(
     api_key=API_KEY,
     base_url=BASE_URL,
 )
-
-# tokens/count endpoint (BASE_URL already ends with /v1)
-TOKEN_COUNT_URL = BASE_URL.rstrip("/") + "/tokens/count"
-
-
-# ------------------------------
-# Token counting helper
-# ------------------------------
-def get_conversation_token_usage(messages) -> int:
-    """
-    Call your gateway's /v1/tokens/count endpoint with the current
-    conversation messages and return the messages_tokens (or total_tokens).
-    This approximates how many tokens the *context* currently uses.
-    """
-    headers = {
-        "Authorization": f"Bearer {API_KEY}",
-        "Content-Type": "application/json",
-    }
-    payload = {"messages": messages}
-
-    resp = requests.post(TOKEN_COUNT_URL, headers=headers, json=payload, timeout=30)
-    resp.raise_for_status()
-    data = resp.json()
-
-    # Your gateway returns:
-    # {
-    #   "model": "...",
-    #   "total_tokens": int,
-    #   "messages_tokens": int,
-    #   "per_message": [...]
-    # }
-    messages_tokens = data.get("messages_tokens")
-    if messages_tokens is not None:
-        return messages_tokens
-
-    return data.get("total_tokens", 0)
-
-
-def print_conversation_token_usage(messages):
-    """
-    Convenience wrapper: fetch and print the current conversation token usage.
-    """
-    try:
-        current_tokens = get_conversation_token_usage(messages)
-    except Exception as e:
-        print(f"[TokenUsage] Failed to fetch token usage: {e}")
-        return
-
-    # If your TokenUsageTracker has a method like `update_total` or `add_turn`,
-    # you can plug it in here. Adjust to match your actual tracker API.
-    try:
-        # Example: tracker tracks latest total context size
-        tracker.update_total(current_tokens)  # <-- adjust method name if needed
-    except AttributeError:
-        # Fallback: ignore if your tracker uses a different API
-        pass
-
-    print(f"[TokenUsage] Conversation tokens so far (context): {current_tokens}")
 
 
 # ------------------------------
@@ -136,16 +75,25 @@ def _chunk_to_text(delta) -> str:
     return "".join(text_parts)
 
 
-def call_model_with_tools_stream(messages, max_tokens: int = 512, temperature: float = 0.2) -> str:
+# ------------------------------
+# Model call (streaming + TTFT)
+# ------------------------------
+def call_model_with_tools_stream(
+    messages,
+    max_tokens: int = 512,
+    temperature: float = 0.2,
+) -> str:
     """
-    Call your Qwen model via the OpenAI-compatible gateway in STREAMING mode.
-    Logs TTFT (time-to-first-token).
+    Call OpenAI gpt-4.1 in STREAMING mode.
+    - Uses the same manual <tool_call>...</tool_call> convention as your gateway.
+    - Logs TTFT (time-to-first-token).
+    - Returns the full concatenated text for tool-call parsing.
     """
     stream = client.chat.completions.create(
         model=MODEL,
         messages=messages,
-        tools=TOOLS,
-        tool_choice="none",
+        tools=TOOLS,           # still pass tools so the model sees schema
+        tool_choice="none",    # we handle tool-calls manually via <tool_call>...</tool_call>
         max_tokens=max_tokens,
         temperature=temperature,
         stream=True,
@@ -156,7 +104,7 @@ def call_model_with_tools_stream(messages, max_tokens: int = 512, temperature: f
     t_start = time.time()
     ttft = None
 
-    print("[Streaming from gateway...]\n", end="", flush=True)
+    print("[Streaming from OpenAI...]\n", end="", flush=True)
 
     for event in stream:
         if not event.choices:
@@ -166,7 +114,7 @@ def call_model_with_tools_stream(messages, max_tokens: int = 512, temperature: f
         piece = _chunk_to_text(delta)
 
         if piece:
-            # ----- TTFT LOGGING HERE -----
+            # ----- TTFT LOGGING -----
             if not first_token_received:
                 first_token_received = True
                 ttft = time.time() - t_start
@@ -176,14 +124,17 @@ def call_model_with_tools_stream(messages, max_tokens: int = 512, temperature: f
             print(piece, end="", flush=True)
             full_text_chunks.append(piece)
 
-    print()  # newline
+    print()  # newline after full streamed response
 
     return "".join(full_text_chunks)
 
 
+# ------------------------------
+# Conversation loop
+# ------------------------------
 def run_conversation_loop_http(initial_message: str | None = None):
     """
-    Conversation loop using your vLLM + gateway endpoint.
+    Conversation loop using OpenAI gpt-4.1.
     - Sends messages + tools to the model
     - Parses <tool_call> blocks
     - Executes tools and feeds results back
@@ -210,9 +161,9 @@ def run_conversation_loop_http(initial_message: str | None = None):
 
             messages.append({"role": "user", "content": user_input})
 
-        print("\n[Generating response via gateway (streaming)...]")
+        print("\n[Generating response via OpenAI (streaming)...]")
 
-        # ---- Call model through gateway (STREAMING) ----
+        # ---- Call model through OpenAI (STREAMING) ----
         output_text = call_model_with_tools_stream(messages)
 
         #print(f"\n[Raw Model Output Collected]: {output_text!r}")
@@ -263,17 +214,10 @@ def run_conversation_loop_http(initial_message: str | None = None):
 
             # After tools, go to next loop iteration; model needs to
             # process tool results and respond (no new user input yet).
-            # We *don't* print token usage here yet, because the "answer"
-            # isn't finalized — the next assistant turn will be the real one.
             continue
 
         # No tool calls → this assistant answer is "complete" for this turn.
-        # Now we print how many tokens the conversation uses so far.
-        print_conversation_token_usage(messages)
-
-        # Now loop continues; last_role is 'assistant', so
-        # next iteration will prompt user for input.
-        # (loop will prompt because last_role is 'assistant')
+        # (No token-count logic here, just continue the loop.)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,10 @@
+1) There should be multilple Judges - Claude / OpenAI / Gemini 
+2) Each judge will have the same system prompt
+3) They will tell which responce they like - Option A / B or tie 
+
+I need to collect a sample dataset chat conversation 
+1) With qwen model
+2) With GPT 
+
+Add around 10 conversations 
+
